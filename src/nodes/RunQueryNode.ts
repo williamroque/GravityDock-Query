@@ -5,6 +5,7 @@ import { QueryCategory } from '../categories';
 declare const gravityDock: GravityDockAPI;
 
 export class RunQueryNode extends ExecuteNode {
+    readonly nodeInterface = 'execute' as const;
     readonly typeId = 'query-run';
     readonly displayName = 'Run Query';
     readonly category = QueryCategory;
