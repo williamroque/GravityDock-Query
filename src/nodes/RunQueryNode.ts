@@ -40,7 +40,11 @@ export class RunQueryNode extends ExecuteNode {
 
         const rows: Record<string, any>[] = [];
         const typedRecords: any[] = [];
-        const allFieldKeys = new Set<string>(['id', 'title']);
+        const keyToLabel = new Map<string, string>();
+        const orderedKeys: string[] = ['id', 'title'];
+
+        keyToLabel.set('id', 'ID');
+        keyToLabel.set('title', 'Title');
 
         try {
             const template = await gravityDock.query.getTemplate(templateNameOrId);
@@ -48,8 +52,21 @@ export class RunQueryNode extends ExecuteNode {
                 const schema = typeof template.schema_json === 'string' ? JSON.parse(template.schema_json) : template.schema_json;
                 if (Array.isArray(schema)) {
                     for (const field of schema) {
-                        if (field && field.key) {
-                            allFieldKeys.add(field.key);
+                        if (!field || !field.key || field.kind === 'header') continue;
+                        const label = field.label || field.key;
+                        if (field.key === 'id') {
+                            keyToLabel.set('id', label);
+                        } else if (field.key === 'title') {
+                            keyToLabel.set('title', label);
+                        } else if (field.key === 'created_at') {
+                            keyToLabel.set('created_at', label);
+                        } else if (field.key === 'updated_at') {
+                            keyToLabel.set('updated_at', label);
+                        } else {
+                            keyToLabel.set(field.key, label);
+                            if (!orderedKeys.includes(field.key)) {
+                                orderedKeys.push(field.key);
+                            }
                         }
                     }
                 }
@@ -57,8 +74,19 @@ export class RunQueryNode extends ExecuteNode {
         } catch {
         }
 
-        allFieldKeys.add('created_at');
-        allFieldKeys.add('updated_at');
+        if (!keyToLabel.has('created_at')) {
+            keyToLabel.set('created_at', 'Created At');
+        }
+        if (!orderedKeys.includes('created_at')) {
+            orderedKeys.push('created_at');
+        }
+
+        if (!keyToLabel.has('updated_at')) {
+            keyToLabel.set('updated_at', 'Updated At');
+        }
+        if (!orderedKeys.includes('updated_at')) {
+            orderedKeys.push('updated_at');
+        }
 
         for (const r of records) {
             let parsedFields: Record<string, any> = {};
@@ -73,7 +101,10 @@ export class RunQueryNode extends ExecuteNode {
             }
 
             for (const k of Object.keys(parsedFields)) {
-                allFieldKeys.add(k);
+                if (!keyToLabel.has(k)) {
+                    keyToLabel.set(k, k);
+                    orderedKeys.push(k);
+                }
             }
 
             const row: Record<string, any> = {
@@ -96,12 +127,28 @@ export class RunQueryNode extends ExecuteNode {
             });
         }
 
-        const columns = Array.from(allFieldKeys);
+        const columns: string[] = [];
+        const usedLabels = new Set<string>();
+        const keyToColumnName = new Map<string, string>();
+
+        for (const key of orderedKeys) {
+            const rawLabel = keyToLabel.get(key) || key;
+            let colName = rawLabel;
+            let counter = 2;
+            while (usedLabels.has(colName)) {
+                colName = `${rawLabel} (${counter++})`;
+            }
+            usedLabels.add(colName);
+            columns.push(colName);
+            keyToColumnName.set(key, colName);
+        }
+
         const normalizedRows: Record<string, any>[] = [];
         for (const row of rows) {
             const norm: Record<string, any> = {};
-            for (const col of columns) {
-                norm[col] = row[col] !== undefined ? row[col] : null;
+            for (const key of orderedKeys) {
+                const colName = keyToColumnName.get(key)!;
+                norm[colName] = row[key] !== undefined ? row[key] : null;
             }
             normalizedRows.push(norm);
         }
