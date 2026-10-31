@@ -1,0 +1,17 @@
+{
+  "name": "@gravitydock/query",
+  "version": "1.0.0",
+  "description": "Gravity Dock Query package",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --outfile=dist/index.js --platform=browser --format=iife --global-name=__GravityDock_Package",
+    "build:gdpkg": "npm run build && node scripts/build-gdpkg.js",
+    "dev": "npm run build -- --watch"
+  },
+  "devDependencies": {
+    "@gravitydock/types": "file:../types",
+    "adm-zip": "^0.6.1",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.3"
+  }
+}

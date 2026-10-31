@@ -1,0 +1,10 @@
+{
+  "id": "com.gravitydock.query",
+  "name": "Query",
+  "version": "1.0.0",
+  "description": "Interop nodes for Gravity Dock strict records, live queries, and query renderers.",
+  "main": "dist/index.js",
+  "permissions": [
+    "query"
+  ]
+}
