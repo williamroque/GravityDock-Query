@@ -42,23 +42,29 @@ export class UnpackRecordNode extends BaseNode {
     ];
 
     readonly outputs: OutputDefinition[] = [
-        { name: 'id', outputType: 'core:string' },
-        { name: 'title', outputType: 'core:string' },
-        { name: 'created_at', outputType: 'core:number' },
-        { name: 'updated_at', outputType: 'core:number' }
+        { name: 'id', label: 'ID', outputType: 'core:string' },
+        { name: 'title', label: 'Title', outputType: 'core:string' },
+        { name: 'created_at', label: 'Created At', outputType: 'core:number' },
+        { name: 'updated_at', label: 'Updated At', outputType: 'core:number' }
     ];
 
     readonly properties: PropertyDefinition[] = [
-        { name: 'strictTemplate', label: 'Strict template (optional)', type: 'strict-template' as const, defaultValue: '' }
+        {
+            name: 'selectColumns',
+            label: 'Select columns',
+            type: 'string' as const,
+            defaultValue: '',
+            description: 'Comma-separated list of columns to include (defaults to all when empty)'
+        }
     ];
 
     getOutputs(data?: Record<string, unknown>, connections?: any[]): OutputDefinition[] {
         const isVector = Boolean(data?.isVectorized);
         const baseOutputs: OutputDefinition[] = [
-            { name: 'id', outputType: isVector ? 'core:string-array' : 'core:string' },
-            { name: 'title', outputType: isVector ? 'core:string-array' : 'core:string' },
-            { name: 'created_at', outputType: isVector ? 'core:number-array' : 'core:number' },
-            { name: 'updated_at', outputType: isVector ? 'core:number-array' : 'core:number' }
+            { name: 'id', label: 'ID', outputType: isVector ? 'core:string-array' : 'core:string' },
+            { name: 'title', label: 'Title', outputType: isVector ? 'core:string-array' : 'core:string' },
+            { name: 'created_at', label: 'Created At', outputType: isVector ? 'core:number-array' : 'core:number' },
+            { name: 'updated_at', label: 'Updated At', outputType: isVector ? 'core:number-array' : 'core:number' }
         ];
 
         const discoveredFields = (data?.fields as Record<string, any>) || {};
@@ -68,18 +74,46 @@ export class UnpackRecordNode extends BaseNode {
             if (key === 'id' || key === 'title' || key === 'created_at' || key === 'updated_at') continue;
             extraOutputs.push({
                 name: key,
+                label: key,
                 outputType: inferFieldType(val, isVector)
             });
         }
 
-        return [...baseOutputs, ...extraOutputs];
+        const allOutputs = [...baseOutputs, ...extraOutputs];
+        const selectColsRaw = (data?.selectColumns ?? data?.columns ?? '') as string;
+        const selectedList = selectColsRaw
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean);
+
+        if (selectedList.length === 0) {
+            return allOutputs;
+        }
+
+        const filteredOutputs: OutputDefinition[] = [];
+        const seen = new Set<string>();
+        for (const s of selectedList) {
+            const sLower = s.toLowerCase();
+            const matched = allOutputs.find(out =>
+                out.name.toLowerCase() === sLower ||
+                (out.label && out.label.toLowerCase() === sLower)
+            );
+            if (matched) {
+                if (!seen.has(matched.name.toLowerCase())) {
+                    seen.add(matched.name.toLowerCase());
+                    filteredOutputs.push(matched);
+                }
+            }
+        }
+
+        return filteredOutputs;
     }
 
     async evaluate(inputs: Record<string, any>, properties: Record<string, any>): Promise<Record<string, any>> {
         const raw = inputs['Record'];
         if (!raw) return {};
 
-        const templateNameOrId = properties['strictTemplate'] || raw.type_id || (Array.isArray(raw) ? raw[0]?.type_id : null);
+        const templateNameOrId = raw.type_id || (Array.isArray(raw) ? raw[0]?.type_id : null);
         let schemaFields: Array<{ key: string; label?: string; kind?: string }> = [];
 
         if (templateNameOrId && typeof gravityDock !== 'undefined' && gravityDock.query?.getTemplate) {
@@ -102,6 +136,10 @@ export class UnpackRecordNode extends BaseNode {
             }
         }
 
+        const selectColsRaw = (properties['selectColumns'] || properties['columns'] || '') as string;
+        const selectedCols = selectColsRaw.split(',').map(s => s.trim()).filter(Boolean);
+        const isFiltering = selectedCols.length > 0;
+
         if (Array.isArray(raw)) {
             const allKeys = new Set<string>(['id', 'title', 'created_at', 'updated_at', ...schemaKeys]);
             for (const item of raw) {
@@ -111,19 +149,36 @@ export class UnpackRecordNode extends BaseNode {
                 }
             }
 
+            const keysToInclude: string[] = [];
+            if (!isFiltering) {
+                keysToInclude.push(...allKeys);
+            } else {
+                for (const s of selectedCols) {
+                    const sLower = s.toLowerCase();
+                    const matchedKey = Array.from(allKeys).find(k => {
+                        const sf = schemaFields.find(f => f && f.key === k);
+                        const label = sf?.label || (k === 'id' ? 'ID' : k === 'title' ? 'Title' : k === 'created_at' ? 'Created At' : k === 'updated_at' ? 'Updated At' : k);
+                        return k.toLowerCase() === sLower || label.toLowerCase() === sLower;
+                    });
+                    if (matchedKey && !keysToInclude.includes(matchedKey)) {
+                        keysToInclude.push(matchedKey);
+                    }
+                }
+            }
+
             const result: Record<string, any[]> = {};
-            for (const k of allKeys) {
+            for (const k of keysToInclude) {
                 result[k] = [];
             }
 
             for (const item of raw) {
                 const itemFields = extractRecordFields(item);
-                result['id'].push(item?.id ?? '');
-                result['title'].push(item?.title ?? '');
-                result['created_at'].push(item?.created_at ?? 0);
-                result['updated_at'].push(item?.updated_at ?? 0);
+                if (result['id']) result['id'].push(item?.id ?? '');
+                if (result['title']) result['title'].push(item?.title ?? '');
+                if (result['created_at']) result['created_at'].push(item?.created_at ?? 0);
+                if (result['updated_at']) result['updated_at'].push(item?.updated_at ?? 0);
 
-                for (const k of allKeys) {
+                for (const k of keysToInclude) {
                     if (k === 'id' || k === 'title' || k === 'created_at' || k === 'updated_at') continue;
                     result[k].push(itemFields[k] ?? null);
                 }
@@ -133,21 +188,32 @@ export class UnpackRecordNode extends BaseNode {
         }
 
         const fields = extractRecordFields(raw);
-        const result: Record<string, any> = {
-            id: raw?.id ?? '',
-            title: raw?.title ?? '',
-            created_at: raw?.created_at ?? 0,
-            updated_at: raw?.updated_at ?? 0
-        };
+        const allKeys = new Set<string>(['id', 'title', 'created_at', 'updated_at', ...schemaKeys, ...Object.keys(fields)]);
 
-        for (const k of schemaKeys) {
-            if (k === 'id' || k === 'title' || k === 'created_at' || k === 'updated_at') continue;
-            result[k] = fields[k] ?? null;
+        const keysToInclude: string[] = [];
+        if (!isFiltering) {
+            keysToInclude.push(...allKeys);
+        } else {
+            for (const s of selectedCols) {
+                const sLower = s.toLowerCase();
+                const matchedKey = Array.from(allKeys).find(k => {
+                    const sf = schemaFields.find(f => f && f.key === k);
+                    const label = sf?.label || (k === 'id' ? 'ID' : k === 'title' ? 'Title' : k === 'created_at' ? 'Created At' : k === 'updated_at' ? 'Updated At' : k);
+                    return k.toLowerCase() === sLower || label.toLowerCase() === sLower;
+                });
+                if (matchedKey && !keysToInclude.includes(matchedKey)) {
+                    keysToInclude.push(matchedKey);
+                }
+            }
         }
 
-        for (const [k, v] of Object.entries(fields)) {
-            if (k === 'id' || k === 'title' || k === 'created_at' || k === 'updated_at') continue;
-            result[k] = v;
+        const result: Record<string, any> = {};
+        for (const k of keysToInclude) {
+            if (k === 'id') result['id'] = raw?.id ?? '';
+            else if (k === 'title') result['title'] = raw?.title ?? '';
+            else if (k === 'created_at') result['created_at'] = raw?.created_at ?? 0;
+            else if (k === 'updated_at') result['updated_at'] = raw?.updated_at ?? 0;
+            else result[k] = fields[k] ?? null;
         }
 
         return result;
