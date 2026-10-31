@@ -1,6 +1,8 @@
 import { BaseNode } from '@gravitydock/types';
-import type { InputDefinition, OutputDefinition, PropertyDefinition } from '@gravitydock/types';
+import type { InputDefinition, OutputDefinition, PropertyDefinition, GravityDockAPI } from '@gravitydock/types';
 import { QueryCategory } from '../categories';
+
+declare const gravityDock: GravityDockAPI;
 
 function inferFieldType(val: any, isVector: boolean): string {
     if (val && typeof val === 'object') {
@@ -13,6 +15,20 @@ function inferFieldType(val: any, isVector: boolean): string {
     if (typeof val === 'boolean') return 'core:boolean';
     if (typeof val === 'string') return isVector ? 'core:string-array' : 'core:string';
     return isVector ? 'core:array' : 'core:any';
+}
+
+function extractRecordFields(item: any): Record<string, any> {
+    if (!item || typeof item !== 'object') return {};
+    if (item.fields && typeof item.fields === 'object') return item.fields;
+    if (typeof item.fields_json === 'string') {
+        try {
+            return JSON.parse(item.fields_json || '{}');
+        } catch {
+            return {};
+        }
+    }
+    if (!item.type_id && !item.fields_json) return item;
+    return {};
 }
 
 export class UnpackRecordNode extends BaseNode {
@@ -32,7 +48,9 @@ export class UnpackRecordNode extends BaseNode {
         { name: 'updated_at', outputType: 'core:number' }
     ];
 
-    readonly properties: PropertyDefinition[] = [];
+    readonly properties: PropertyDefinition[] = [
+        { name: 'strictTemplate', label: 'Strict template (optional)', type: 'strict-template' as const, defaultValue: '' }
+    ];
 
     getOutputs(data?: Record<string, unknown>, connections?: any[]): OutputDefinition[] {
         const isVector = Boolean(data?.isVectorized);
@@ -61,38 +79,71 @@ export class UnpackRecordNode extends BaseNode {
         const raw = inputs['Record'];
         if (!raw) return {};
 
+        const templateNameOrId = properties['strictTemplate'] || raw.type_id || (Array.isArray(raw) ? raw[0]?.type_id : null);
+        let schemaFields: Array<{ key: string; label?: string; kind?: string }> = [];
+
+        if (templateNameOrId && typeof gravityDock !== 'undefined' && gravityDock.query?.getTemplate) {
+            try {
+                const template = await gravityDock.query.getTemplate(templateNameOrId);
+                if (template && template.schema_json) {
+                    const parsed = typeof template.schema_json === 'string' ? JSON.parse(template.schema_json) : template.schema_json;
+                    if (Array.isArray(parsed)) {
+                        schemaFields = parsed;
+                    }
+                }
+            } catch {
+            }
+        }
+
+        const schemaKeys = new Set<string>();
+        for (const f of schemaFields) {
+            if (f && f.key && f.kind !== 'header') {
+                schemaKeys.add(f.key);
+            }
+        }
+
         if (Array.isArray(raw)) {
-            const result: Record<string, any[]> = {
-                id: [],
-                title: [],
-                created_at: [],
-                updated_at: []
-            };
+            const allKeys = new Set<string>(['id', 'title', 'created_at', 'updated_at', ...schemaKeys]);
+            for (const item of raw) {
+                const itemFields = extractRecordFields(item);
+                for (const k of Object.keys(itemFields)) {
+                    allKeys.add(k);
+                }
+            }
+
+            const result: Record<string, any[]> = {};
+            for (const k of allKeys) {
+                result[k] = [];
+            }
 
             for (const item of raw) {
-                const itemFields = item?.fields || item || {};
-                result.id.push(item?.id ?? '');
-                result.title.push(item?.title ?? '');
-                result.created_at.push(item?.created_at ?? 0);
-                result.updated_at.push(item?.updated_at ?? 0);
+                const itemFields = extractRecordFields(item);
+                result['id'].push(item?.id ?? '');
+                result['title'].push(item?.title ?? '');
+                result['created_at'].push(item?.created_at ?? 0);
+                result['updated_at'].push(item?.updated_at ?? 0);
 
-                for (const [k, v] of Object.entries(itemFields)) {
+                for (const k of allKeys) {
                     if (k === 'id' || k === 'title' || k === 'created_at' || k === 'updated_at') continue;
-                    if (!result[k]) result[k] = [];
-                    result[k].push(v);
+                    result[k].push(itemFields[k] ?? null);
                 }
             }
 
             return result;
         }
 
-        const fields = raw.fields || raw || {};
+        const fields = extractRecordFields(raw);
         const result: Record<string, any> = {
-            id: raw.id ?? '',
-            title: raw.title ?? '',
-            created_at: raw.created_at ?? 0,
-            updated_at: raw.updated_at ?? 0
+            id: raw?.id ?? '',
+            title: raw?.title ?? '',
+            created_at: raw?.created_at ?? 0,
+            updated_at: raw?.updated_at ?? 0
         };
+
+        for (const k of schemaKeys) {
+            if (k === 'id' || k === 'title' || k === 'created_at' || k === 'updated_at') continue;
+            result[k] = fields[k] ?? null;
+        }
 
         for (const [k, v] of Object.entries(fields)) {
             if (k === 'id' || k === 'title' || k === 'created_at' || k === 'updated_at') continue;
