@@ -41,8 +41,12 @@ export class WatchTemplateNode extends EventNode {
     }
 
     async evaluate(inputs: Record<string, any>, properties: Record<string, any>): Promise<Record<string, any>> {
-        const templateNameOrId = properties['strictTemplate'];
         const nodeId = properties['_nodeId'];
+        if (properties['enabled'] === false || properties['_action'] === 'unregister') {
+            if (nodeId) this.unregister(nodeId);
+            return {};
+        }
+        const templateNameOrId = properties['strictTemplate'];
 
         if (nodeId && templateNameOrId && !this.watchUnsubs.has(nodeId)) {
             const unsub = gravityDock.query.watchTemplate(templateNameOrId, (event) => {
