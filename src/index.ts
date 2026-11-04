@@ -2,6 +2,9 @@ import { RunQueryNode } from './nodes/RunQueryNode';
 import { WatchTemplateNode } from './nodes/WatchTemplateNode';
 import { RenderQueryNode } from './nodes/RenderQueryNode';
 import { UnpackRecordNode } from './nodes/UnpackRecordNode';
+import { BuildRecordNode } from './nodes/BuildRecordNode';
+import { FromDataframeNode } from './nodes/FromDataframeNode';
+import { CreateRecordNode } from './nodes/CreateRecordNode';
 import type { GravityDockAPI } from '@gravitydock/types';
 
 declare const gravityDock: GravityDockAPI;
@@ -10,7 +13,10 @@ const nodes = [
     new RunQueryNode(),
     new WatchTemplateNode(),
     new RenderQueryNode(),
-    new UnpackRecordNode()
+    new UnpackRecordNode(),
+    new BuildRecordNode(),
+    new FromDataframeNode(),
+    new CreateRecordNode()
 ];
 
 const serializableNodes = nodes.map(n => ({
