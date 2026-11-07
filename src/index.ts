@@ -5,6 +5,7 @@ import { UnpackRecordNode } from './nodes/UnpackRecordNode';
 import { BuildRecordNode } from './nodes/BuildRecordNode';
 import { FromDataframeNode } from './nodes/FromDataframeNode';
 import { CreateRecordNode } from './nodes/CreateRecordNode';
+import { GetByIdNode } from './nodes/GetByIdNode';
 import type { GravityDockAPI } from '@gravitydock/types';
 
 declare const gravityDock: GravityDockAPI;
@@ -16,7 +17,8 @@ const nodes = [
     new UnpackRecordNode(),
     new BuildRecordNode(),
     new FromDataframeNode(),
-    new CreateRecordNode()
+    new CreateRecordNode(),
+    new GetByIdNode()
 ];
 
 const serializableNodes = nodes.map(n => ({
